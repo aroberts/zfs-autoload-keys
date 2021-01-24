@@ -1,0 +1,13 @@
+[Unit]
+Description=Load encryption keys
+DefaultDependencies=no
+After=zfs-import.target
+Before=zfs-mount.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/zfs-autoload-keys $AUTOLOAD_PATH
+
+[Install]
+WantedBy=zfs-mount.service
