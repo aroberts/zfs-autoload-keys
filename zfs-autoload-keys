@@ -66,8 +66,12 @@ for v in $encvols; do
     debug_log "Checking $target"
     key=$(curl -s "$target")
     if [ $? -ne 0 ]; then
-      # strip off a segment
-      att=${att%.*}
+      if [[ "$att" == "${att%.*}" ]]; then
+        break
+      else
+        # strip off a segment
+        att=${att%.*}
+      fi
     else
       debug_log "Found key."
     fi
