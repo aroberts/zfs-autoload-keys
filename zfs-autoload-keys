@@ -1,0 +1,88 @@
+#!/bin/bash
+
+## Loads zfs encryption keys via curl based on a dot-notation search:
+#  $HOSTNAME.$POOLNAME.$PATH.zfs
+#  slashes are replaced with dots, and dot-segments are dropped until a keyfile
+#  is found or there are no more segments
+
+script="$0"
+usage() {
+  echo "$script [options] <key_root_url>"
+  echo "Options:"
+  echo "  -v            Verbose mode"
+  echo "  -d            Dry-run (zfs load-key -n)"
+  echo "  -h            Show this help"
+  echo
+}
+
+DEBUG=
+DRY_RUN=
+
+debug_log() {
+  if [ -n "$DEBUG" ]; then echo "$1" >&2; fi
+}
+
+while getopts ":hvd" opt; do
+  case $opt in
+    h)
+      usage && exit 1
+      ;;
+    v)
+      DEBUG=1
+      ;;
+    d)
+      DRY_RUN="-n"
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND-1))
+
+key_root=$1
+if [[ -z "$key_root" ]]; then usage && exit 1; fi
+
+encvols=$(
+  zfs list -H -o name,keyformat,keylocation | \
+    awk -v FS='\t' '$2 == "passphrase" && $3 == "prompt" {print $1}'
+)
+
+KEYERR=0
+
+for v in $encvols; do
+  debug_log "Loading key for $v on $HOSTNAME..."
+  att="$HOSTNAME.$(echo $v | tr '/' '.')"
+  key=
+
+  # locate key
+  while [[ "x$key" == "x" ]]; do
+    target="$key_root/$att.zfs"
+    debug_log "Checking $target"
+    key=$(curl -s "$target")
+    if [ $? -ne 0 ]; then
+      # strip off a segment
+      att=${att%.*}
+    else
+      debug_log "Found key."
+    fi
+  done
+
+  # load key
+  if [[ ! "x$key" == "x" ]]; then
+    echo "$key" | zfs load-key $DRY_RUN "$v"
+    if [ $? -ne 0 ]; then
+      KEYERR=1
+    fi
+  else
+    KEYERR=1
+    debug_log "No key for $v on $HOSTNAME"
+  fi
+done
+
+exit $KEYERR
